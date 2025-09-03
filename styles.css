@@ -1,0 +1,93 @@
+/* styles.css - simplified QSS for ComCAD V1
+   This variant avoids complex qlineargradient constructs to reduce linter warnings
+   while preserving the visual theme (teal/blue palette).
+*/
+
+QMainWindow {
+    background-color: #f3f8fb;
+    color: #0b3559;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Toolbar */
+QToolBar {
+    background-color: rgba(255,255,255,0.95);
+    border-bottom: 1px solid rgba(11,53,89,0.06);
+    spacing: 6px;
+    padding: 6px;
+}
+QToolBar QToolButton {
+    background: transparent;
+    border: none;
+    padding: 6px 8px;
+    border-radius: 6px;
+}
+QToolBar QToolButton:hover {
+    background: rgba(11,53,89,0.06);
+}
+
+/* Panels */
+QFrame#leftPanel, QFrame#rightPanel, QFrame#bottomStatus {
+    background: transparent;
+}
+
+QWidget#card {
+    background-color: #ffffff;
+    border-radius: 10px;
+    border: 1px solid rgba(11,53,89,0.04);
+    padding: 12px;
+}
+
+/* Titles */
+QLabel#titleLabel {
+    color: #083049;
+    font-size: 22px;
+    font-weight: 700;
+}
+QLabel#subtitleLabel {
+    color: #315a73;
+    font-size: 12px;
+}
+
+/* Buttons (left panel actions) */
+QFrame#leftPanel QPushButton, QPushButton {
+    background-color: #0b3559;
+    color: white;
+    border: none;
+    padding: 10px 14px;
+    border-radius: 8px;
+}
+QFrame#leftPanel QPushButton:hover, QPushButton:hover {
+    background-color: #15507a;
+}
+
+/* Graphics view placeholder */
+QGraphicsView#graphicsView {
+    background-color: #ffffff;
+    border: 1px solid rgba(11,53,89,0.06);
+    border-radius: 6px;
+}
+
+/* Status bar labels */
+QStatusBar {
+    background: transparent;
+    padding: 6px 10px;
+    color: rgba(0,0,0,0.6);
+}
+
+/* Small helper classes */
+.muted {
+    color: rgba(0,0,0,0.55);
+    font-size: 12px;
+}
+
+/* Progress bar (if used in main window) */
+QProgressBar {
+    background: rgba(0,0,0,0.04);
+    border-radius: 8px;
+    height: 14px;
+}
+QProgressBar::chunk {
+    background-color: #6ec1ff;
+    border-radius: 8px;
+}
