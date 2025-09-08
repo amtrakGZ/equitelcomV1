@@ -1,262 +1,271 @@
 import sys
 import os
 from PyQt5.QtWidgets import (
-    QApplication,
-    QSplashScreen,
-    QProgressBar,
-    QLabel,
-    QGraphicsDropShadowEffect,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QSizePolicy,
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QProgressBar, QGraphicsDropShadowEffect, QMessageBox
 )
-from PyQt5.QtGui import QPixmap, QColor, QPainter, QLinearGradient, QBrush, QFont
 from PyQt5.QtCore import (
-    Qt,
-    QTimer,
-    QPropertyAnimation,
-    QEasingCurve,
-    QRect,
-    QObject,
-    pyqtProperty,
+    Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSlot
 )
-# Import of VentanaPrincipal is done lazily inside finish() to avoid import cycles
+from PyQt5.QtGui import (
+    QPixmap, QPainter, QLinearGradient, QColor, QBrush, QFont
+)
 
+# ---------------- CONFIG RÁPIDA ---------------- #
+WIDTH = 720
+HEIGHT = 360
+CARD_MARGIN = 40
+LOGO_RATIO = 0.50         # % del ancho/alto
+BAR_WIDTH_RATIO = 0.62
+PROGRESS_HEIGHT = 12
+DOTS_INTERVAL_MS = 550
+FAKE_PROGRESS_DURATION_MS = 15000   # Duración animación barra (ms)
+FINISH_DELAY_MS = 300              # Pequeña pausa tras 100%
+FADE_IN_MS = 350
+FADE_OUT_MS = 300
+USE_FADE = True
+SHADOW = False                     # Pon True si quieres sombra (ligero coste)
+ALLOW_SKIP = True
+LOGO_PATH = "assets/logov1.png"
 
-def iniciar_app():
-    print("[DEBUG] iniciar_app() started")
-    # --- Manual speed control (edit these values in milliseconds to speed/slow the splash) ---
-    # BAR_ANIM_DURATION: duration of the progress bar animation (ms)
-    # FADE_IN_MS / FADE_OUT_MS: fade in/out durations (ms)
-    # DOTS_INTERVAL_MS: interval between dot updates in the "Cargando..." text (ms)
-    # FINISH_DELAY_MS: delay after bar finishes before triggering finish (ms)
-    BAR_ANIM_DURATION = 9000  # duration of progress bar animation in ms (15000ms = 15s)
-    FADE_IN_MS = 1000
-    FADE_OUT_MS = 800
-    DOTS_INTERVAL_MS = 600
-    FINISH_DELAY_MS = 700
-    SPLASH_CLOSE_DELAY_MS = 700
-    app = QApplication(sys.argv)
+# ---------------- SPLASH ---------------- #
+class FastSplash(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # Ventana sin marco y siempre arriba
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.resize(WIDTH, HEIGHT)
 
-    # Crear un pixmap para el splash y pintar un gradiente (control total del tamaño)
-    width, height = 720, 360
-    pixmap = QPixmap(width, height)
-    painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
-    grad = QLinearGradient(0, 0, width, height)
-    # Palette: deeper teal -> mid blue -> soft cyan for a modern look
-    grad.setColorAt(0.0, QColor("#052f4f"))
-    grad.setColorAt(0.6, QColor("#0e4b66"))
-    grad.setColorAt(1.0, QColor("#2b7a8f"))
-    painter.fillRect(0, 0, width, height, QBrush(grad))
-    card_margin = 40
-    card_rect = QRect(card_margin, card_margin, width - card_margin * 2, height - card_margin * 2)
-    painter.setPen(Qt.NoPen)
-    painter.setBrush(QColor(255, 255, 255, 28))
-    painter.drawRoundedRect(card_rect, 14, 14)
-    painter.end()
+        self._dot_state = 0
+        self._anim = None
+        self._fade = None
+        self._finished = False
 
-    splash = QSplashScreen(pixmap)
-    splash.setWindowFlag(Qt.FramelessWindowHint)
-    splash.setAttribute(Qt.WA_TranslucentBackground, True)
+        self._build_ui()
+        # MOSTRAR INMEDIATAMENTE (para evitar retardo visual):
+        self.show()
+        if USE_FADE:
+            self._start_fade_in()
+        else:
+            self.setWindowOpacity(1.0)
 
-    # Colocar widgets sobre el splash usando un contenedor transparente y layouts
-    assets_dir = os.path.join(os.path.dirname(__file__), "assets")
-    logo_path_png = os.path.join(assets_dir, "logov1.png")
-    logo_pix = QPixmap()
-    if os.path.exists(logo_path_png):
-        logo_pix.load(logo_path_png)
+        self._start_dots()
+        self._start_fake_progress()
 
-    # Contenedor transparente que ocupa todo el splash; usaremos layouts para centrar
-    container = QWidget(splash)
-    container.setAttribute(Qt.WA_TranslucentBackground, True)
-    container.setGeometry(0, 0, width, height)
+    # ---------- UI ---------- #
+    def _build_ui(self):
+        self._root_layout = QVBoxLayout(self)
+        self._root_layout.setContentsMargins(0, 0, 0, 0)
 
-    vbox = QVBoxLayout(container)
-    vbox.setContentsMargins(40, 24, 40, 24)
-    vbox.setSpacing(10)
-    vbox.setAlignment(Qt.AlignCenter)
+        # Card interna (contenedor)
+        self.card = QWidget(self)
+        self.card.setObjectName("card")
+        self.card.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.card.setGeometry(
+            CARD_MARGIN, CARD_MARGIN,
+            self.width() - CARD_MARGIN * 2,
+            self.height() - CARD_MARGIN * 2
+        )
 
-    # Logo
-    logo_label = QLabel()
-    logo_label.setParent(container)
-    logo_label.setAlignment(Qt.AlignCenter)
-    # Slightly larger logo for better aesthetics
-    logo_max_w = int(width * 0.32)
-    logo_max_h = int(height * 0.32)
-    if not logo_pix.isNull():
-        logo_scaled = logo_pix.scaled(logo_max_w, logo_max_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        logo_label.setPixmap(logo_scaled)
-    else:
-        logo_label.setText("")
-    logo_shadow = QGraphicsDropShadowEffect()
-    logo_shadow.setBlurRadius(18)
-    logo_shadow.setOffset(0, 6)
-    logo_shadow.setColor(QColor(0, 0, 0, 120))
-    logo_label.setGraphicsEffect(logo_shadow)
-    vbox.addWidget(logo_label, alignment=Qt.AlignHCenter)
+        lay = QVBoxLayout(self.card)
+        lay.setContentsMargins(40, 28, 40, 28)
+        lay.setSpacing(10)
+        lay.setAlignment(Qt.AlignCenter)
 
-    # Título y subtítulo
-    title = QLabel("ComCAD V1")
-    title.setParent(container)
-    title.setStyleSheet("color: white;")
-    tfont = QFont("Segoe UI", 22, QFont.Bold)
-    title.setFont(tfont)
-    title.setAlignment(Qt.AlignCenter)
-    vbox.addWidget(title, alignment=Qt.AlignHCenter)
+        # Logo
+        self.logo_label = QLabel(self.card)
+        self.logo_label.setAlignment(Qt.AlignCenter)
+        self._load_logo()
+        lay.addWidget(self.logo_label)
 
-    subtitle = QLabel("Interfaz de gestión CAD")
-    subtitle.setParent(container)
-    subtitle.setStyleSheet("color: rgba(255,255,255,0.9);")
-    sfont = QFont("Segoe UI", 10)
-    subtitle.setFont(sfont)
-    subtitle.setAlignment(Qt.AlignCenter)
-    vbox.addWidget(subtitle, alignment=Qt.AlignHCenter)
+        # Título
+        self.title = QLabel("ComCAD V1", self.card)
+        self.title.setStyleSheet("color:white;")
+        self.title.setFont(QFont("Segoe UI", 22, QFont.Bold))
+        self.title.setAlignment(Qt.AlignCenter)
+        lay.addWidget(self.title)
 
-    vbox.addStretch(1)
+        # Subtítulo
+        self.subtitle = QLabel("Interfaz de gestión CAD", self.card)
+        self.subtitle.setStyleSheet("color:rgba(255,255,255,0.9);")
+        self.subtitle.setFont(QFont("Segoe UI", 10))
+        self.subtitle.setAlignment(Qt.AlignCenter)
+        lay.addWidget(self.subtitle)
 
-    # Barra de progreso con porcentaje al lado
-    progress = QProgressBar()
-    progress.setParent(container)
-    progress.setRange(0, 100)
-    progress.setValue(0)
-    progress.setTextVisible(False)
-    progress_h = 12
-    progress_w = int(width * 0.62)
-    progress.setFixedSize(progress_w, progress_h)
-    progress.setStyleSheet(
-        "QProgressBar {"
-        " background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255,255,255,0.03), stop:1 rgba(0,0,0,0.06));"
-        " border: 1px solid rgba(255,255,255,0.06);"
-        " border-radius: 12px;"
-        " padding: 2px;"
-        "}"
-        "QProgressBar::chunk {"
-        " border-radius: 12px;"
-        " background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #6ec1ff, stop:0.5 #a6d8ff, stop:1 #ffffff);"
-        " margin: 0px;"
-        "}"
-    )
-    progress_shadow = QGraphicsDropShadowEffect()
-    progress_shadow.setBlurRadius(12)
-    progress_shadow.setOffset(0, 4)
-    progress_shadow.setColor(QColor(0, 0, 0, 100))
-    progress.setGraphicsEffect(progress_shadow)
+        lay.addStretch(1)
 
-    percent = QLabel("0%")
-    percent.setParent(container)
-    # Hacer la etiqueta más compacta: misma altura que la barra y fondo transparente
-    percent.setFont(QFont("Segoe UI", 9, QFont.Bold))
-    percent.setStyleSheet(
-        "color: white;"
-        " background: transparent;"
-        " border-radius: 8px;"
-        " padding: 0px 6px;"
-    )
-    percent.setFixedSize(56, progress_h)
-    percent.setAlignment(Qt.AlignCenter)
+        # Barra de progreso + porcentaje
+        self.progress = QProgressBar(self.card)
+        self.progress.setRange(0, 100)
+        self.progress.setValue(0)
+        self.progress.setTextVisible(False)
+        self.progress.setFixedSize(int(self.width() * BAR_WIDTH_RATIO), PROGRESS_HEIGHT)
+        self.progress.setStyleSheet(
+            "QProgressBar {"
+            " background: qlineargradient(x1:0,y1:0,x2:0,y2:1,"
+            "  stop:0 rgba(255,255,255,0.04), stop:1 rgba(0,0,0,0.08));"
+            " border: 1px solid rgba(255,255,255,0.10);"
+            " border-radius: 12px; padding:2px;"
+            "}"
+            "QProgressBar::chunk {"
+            " background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+            "  stop:0 #6ec1ff, stop:0.5 #a6d8ff, stop:1 #ffffff);"
+            " border-radius: 12px; margin:0;"
+            "}"
+        )
 
-    hbar = QHBoxLayout()
-    hbar.setSpacing(12)
-    hbar.setAlignment(Qt.AlignCenter)
-    hbar.addWidget(progress, 0, Qt.AlignVCenter)
-    hbar.addWidget(percent, 0, Qt.AlignVCenter)
-    vbox.addLayout(hbar)
+        self.percent = QLabel("0%", self.card)
+        self.percent.setFont(QFont("Segoe UI", 9, QFont.Bold))
+        self.percent.setStyleSheet("color:white; background:transparent;")
+        self.percent.setFixedHeight(PROGRESS_HEIGHT)
+        self.percent.setAlignment(Qt.AlignCenter)
+        self.percent.setMinimumWidth(54)
 
-    # Texto de carga debajo de la barra
-    loading = QLabel("Cargando")
-    loading.setParent(container)
-    loading.setStyleSheet("color: rgba(255,255,255,0.9);")
-    loading.setFont(QFont("Segoe UI", 9))
-    loading.setAlignment(Qt.AlignCenter)
-    vbox.addWidget(loading, alignment=Qt.AlignHCenter)
+        hbar = QHBoxLayout()
+        hbar.setSpacing(12)
+        hbar.addWidget(self.progress)
+        hbar.addWidget(self.percent)
+        lay.addLayout(hbar)
 
-    vbox.addSpacing(6)
+        # Texto de carga
+        self.loading = QLabel("Cargando", self.card)
+        self.loading.setStyleSheet("color:rgba(255,255,255,0.9);")
+        self.loading.setFont(QFont("Segoe UI", 9))
+        self.loading.setAlignment(Qt.AlignCenter)
+        lay.addWidget(self.loading)
 
-    # Fade-in suave
-    splash.show()
-    print("[DEBUG] splash shown")
-    fade = QPropertyAnimation(splash, b"windowOpacity")
-    fade.setDuration(FADE_IN_MS)
-    fade.setStartValue(0.0)
-    fade.setEndValue(1.0)
-    fade.setEasingCurve(QEasingCurve.InOutCubic)
-    fade.start()
-    # Keep a reference so Python GC won't delete the animation
-    splash._fade = fade
+        if SHADOW:
+            shadow = QGraphicsDropShadowEffect(self)
+            shadow.setBlurRadius(24)
+            shadow.setOffset(0, 6)
+            shadow.setColor(QColor(0, 0, 0, 110))
+            self.card.setGraphicsEffect(shadow)
 
-    # Animación de puntos en el texto de carga
-    dot_count = {"n": 0}
-    def animate_dots():
-        dot_count["n"] = (dot_count["n"] + 1) % 4
-        loading.setText("Cargando" + "." * dot_count["n"])
-    dots_timer = QTimer()
-    dots_timer.timeout.connect(animate_dots)
-    dots_timer.start(DOTS_INTERVAL_MS)
+        if ALLOW_SKIP:
+            self.setToolTip("Presiona ESC para omitir")
 
-    # Animación suave de la barra usando QPropertyAnimation
-    class ProgressAnim(QObject):
-        def __init__(self, bar, percent_label):
-            super().__init__()
-            self._value = 0
-            self.bar = bar
-            self.percent_label = percent_label
-        def getValue(self):
-            return self._value
-        def setValue(self, v):
-            self._value = v
-            self.bar.setValue(int(v))
-            self.percent_label.setText(f"{int(v)}%")
-        value = pyqtProperty(float, fget=getValue, fset=setValue)
+    def _load_logo(self):
+        base = os.path.dirname(os.path.abspath(__file__))
+        path = LOGO_PATH
+        if not os.path.isabs(path):
+            path = os.path.join(base, path)
+        pm = QPixmap(path)
+        if pm.isNull():
+            self.logo_label.setText("")
+            return
+        target_w = int(self.width() * LOGO_RATIO)
+        target_h = int(self.height() * LOGO_RATIO)
+        self.logo_label.setPixmap(
+            pm.scaled(target_w, target_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
 
-    anim_obj = ProgressAnim(progress, percent)
-    bar_anim = QPropertyAnimation(anim_obj, b"value")
-    # Duración controlada por BAR_ANIM_DURATION
-    bar_anim.setDuration(BAR_ANIM_DURATION)
-    bar_anim.setStartValue(0)
-    bar_anim.setEndValue(100)
-    bar_anim.setEasingCurve(QEasingCurve.OutCubic)
-    bar_anim.start()
-    print("[DEBUG] bar_anim started")
-    # Keep reference to avoid GC stopping the animation
-    splash._bar_anim = bar_anim
+    # ---------- Pintura de fondo (gradiente + card translúcida) ---------- #
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        grad = QLinearGradient(0, 0, self.width(), self.height())
+        grad.setColorAt(0.0, QColor("#052f4f"))
+        grad.setColorAt(0.6, QColor("#0e4b66"))
+        grad.setColorAt(1.0, QColor("#2b7a8f"))
+        painter.fillRect(self.rect(), QBrush(grad))
 
-    def finish():
-        print("[DEBUG] Lanzando VentanaPrincipal...")
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(255, 255, 255, 30))
+        painter.drawRoundedRect(
+            CARD_MARGIN, CARD_MARGIN,
+            self.width() - 2 * CARD_MARGIN,
+            self.height() - 2 * CARD_MARGIN,
+            14, 14
+        )
+
+    # ---------- Animaciones ---------- #
+    def _start_fake_progress(self):
+        # Animación lineal simple (corta) sin conversiones extras
+        self._anim = QPropertyAnimation(self.progress, b"value", self)
+        self._anim.setDuration(FAKE_PROGRESS_DURATION_MS)
+        self._anim.setStartValue(0)
+        self._anim.setEndValue(100)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim.valueChanged.connect(self._on_progress_value)
+        self._anim.finished.connect(self._on_progress_finished)
+        self._anim.start()
+
+    @pyqtSlot("QVariant")
+    def _on_progress_value(self, v):
+        self.percent.setText(f"{int(v)}%")
+
+    def _on_progress_finished(self):
+        QTimer.singleShot(FINISH_DELAY_MS, self.finish)
+
+    def _start_fade_in(self):
+        self.setWindowOpacity(0.0)
+        self._fade = QPropertyAnimation(self, b"windowOpacity", self)
+        self._fade.setDuration(FADE_IN_MS)
+        self._fade.setStartValue(0.0)
+        self._fade.setEndValue(1.0)
+        self._fade.setEasingCurve(QEasingCurve.InOutCubic)
+        self._fade.start()
+
+    def _start_fade_out(self, callback):
+        if not USE_FADE:
+            callback()
+            return
+        self._fade = QPropertyAnimation(self, b"windowOpacity", self)
+        self._fade.setDuration(FADE_OUT_MS)
+        self._fade.setStartValue(1.0)
+        self._fade.setEndValue(0.0)
+        self._fade.setEasingCurve(QEasingCurve.InOutCubic)
+        self._fade.finished.connect(callback)
+        self._fade.start()
+
+    # ---------- Dots ---------- #
+    def _start_dots(self):
+        self._dots_timer = QTimer(self)
+        self._dots_timer.timeout.connect(self._tick_dots)
+        self._dots_timer.start(DOTS_INTERVAL_MS)
+
+    def _tick_dots(self):
+        self._dot_state = (self._dot_state + 1) % 4
+        self.loading.setText("Cargando" + "." * self._dot_state)
+
+    # ---------- Finish ---------- #
+    def finish(self):
+        if self._finished:
+            return
+        self._finished = True
+        if self._dots_timer:
+            self._dots_timer.stop()
+        self._start_fade_out(self._final_close)
+
+    def _final_close(self):
+        self.close()
+        self._launch_main()
+
+    def _launch_main(self):
         try:
-            # Import here to avoid circular imports at module level
             from main import VentanaPrincipal
-            ventana = VentanaPrincipal()
-            ventana.show()
-            print("[DEBUG] VentanaPrincipal mostrada.")
+            w = VentanaPrincipal()
+            w.show()
         except Exception as e:
-            print(f"[ERROR] No se pudo lanzar VentanaPrincipal: {e}")
-            # If the main window fails, just close the splash gracefully
-            ventana = None
+            QMessageBox.critical(None, "Error", f"No se pudo abrir ventana principal:\n{e}")
 
-        fade_out = QPropertyAnimation(splash, b"windowOpacity")
-        fade_out.setDuration(FADE_OUT_MS)
-        fade_out.setStartValue(1.0)
-        fade_out.setEndValue(0.0)
-        fade_out.setEasingCurve(QEasingCurve.InOutCubic)
-        fade_out.start()
-        splash._fade_out = fade_out
+    # ---------- Skip ---------- #
+    def keyPressEvent(self, event):
+        if ALLOW_SKIP and event.key() == Qt.Key_Escape:
+            self.finish()
+        else:
+            super().keyPressEvent(event)
 
-        def close_or_finish(win):
-            if win:
-                splash.finish(win)
-            else:
-                splash.close()
 
-        QTimer.singleShot(SPLASH_CLOSE_DELAY_MS, lambda: close_or_finish(ventana))
-
-    # Cuando la animación termina, cerrar el splash (con pequeño retraso)
-    bar_anim.finished.connect(lambda: QTimer.singleShot(FINISH_DELAY_MS, finish))
-    bar_anim.finished.connect(lambda: print("[DEBUG] bar_anim finished"))
-
+# ---------------- FUNCIÓN PRINCIPAL ---------------- #
+def main():
+    app = QApplication.instance() or QApplication(sys.argv)
+    splash = FastSplash()
+    # Permite devolver control a otros componentes
     sys.exit(app.exec_())
 
 
 if __name__ == "__main__":
-    iniciar_app()
+    main()
+
+# ---------------- FIN DEL CÓDIGO ---------------- #
