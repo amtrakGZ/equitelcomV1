@@ -109,3 +109,17 @@ QScrollBar::sub-line {
 QLabel {
     color: #e4ecf0;
 }
+
+/* Status bar separators */
+QLabel#status-separator {
+    color: #5d7b86;
+    font-weight: normal;
+    padding: 0 4px;
+}
+
+/* Focus ring accessibility styles */
+QPushButton:focus, QToolButton:focus, QLineEdit:focus {
+    outline: none;
+    border: 1px solid #19a7d8;
+    box-shadow: 0 0 4px rgba(25, 167, 216, 0.55);
+}

@@ -9,6 +9,7 @@ from PyQt5.QtWidgets import (
     QWidget,
     QPushButton,
     QVBoxLayout,
+    QHBoxLayout,
     QToolBar,
     QAction,
     QStyle,
@@ -20,6 +21,11 @@ from PyQt5.QtWidgets import (
     QSizePolicy,
     QGraphicsLineItem,
     QGraphicsEllipseItem,
+    QShortcut,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QComboBox,
 )
 from PyQt5.QtGui import (
     QFont,
@@ -29,6 +35,7 @@ from PyQt5.QtGui import (
     QCursor,
     QPixmap,
     QLinearGradient,
+    QKeySequence,
 )
 from PyQt5.QtCore import (
     Qt,
@@ -285,6 +292,7 @@ class VentanaPrincipal(QMainWindow):
     - Menos repaints: SmartViewportUpdate
     - Sin full redraw por crosshair
     - Items en escena para crosshair & snap
+    - Lote 1: Keyboard shortcuts, tooltips, welcome card, mode tracking
     """
 
     def __init__(self):
@@ -293,12 +301,34 @@ class VentanaPrincipal(QMainWindow):
         self.setMinimumSize(1100, 720)
         self.resize(1400, 860)
 
+        # Mode tracking
+        self.current_mode = "Normal"
+        self.has_open_file = False
+
         self._cargar_stylesheet()
         self._crear_centro()
         self._crear_docks()
         self._crear_toolbar()
         self._crear_statusbar()
+        self._crear_shortcuts()
         self._conectar_signals()
+        self._mostrar_welcome_card()
+
+    # -------- Helper Methods -------- #
+    def _add_shortcut(self, sequence, slot, context=None):
+        """Helper method to create keyboard shortcuts"""
+        if context is None:
+            context = self
+        shortcut = QShortcut(QKeySequence(sequence), context)
+        shortcut.activated.connect(slot)
+        return shortcut
+
+    def _safe_load_icon(self, icon_type):
+        """Safely load icons with fallback"""
+        try:
+            return self.style().standardIcon(icon_type)
+        except:
+            return self.style().standardIcon(QStyle.SP_FileIcon)
 
     # -------- Estilos -------- #
     def _cargar_stylesheet(self):
@@ -338,10 +368,19 @@ class VentanaPrincipal(QMainWindow):
         lay.setContentsMargins(10, 10, 10, 10)
         lay.setSpacing(10)
 
+        # Updated buttons with tooltips showing shortcuts
         self.btn_open = QPushButton("Abrir plano")
+        self.btn_open.setToolTip("Abrir plano (Ctrl+O)")
+        
         self.btn_insert = QPushButton("Insertar símbolo")
+        self.btn_insert.setToolTip("Insertar símbolo (I)")
+        
         self.btn_draw = QPushButton("Dibujar canalización")
+        self.btn_draw.setToolTip("Dibujar canalización (D)")
+        
         self.btn_report = QPushButton("Generar reporte")
+        self.btn_report.setToolTip("Generar reporte (R)")
+        
         for b in (self.btn_open, self.btn_insert, self.btn_draw, self.btn_report):
             b.setMinimumHeight(40)
             lay.addWidget(b)
@@ -368,6 +407,93 @@ class VentanaPrincipal(QMainWindow):
         self.dock_right.setWidget(right_container)
         self.addDockWidget(Qt.RightDockWidgetArea, self.dock_right)
 
+    # -------- Welcome Card -------- #
+    def _mostrar_welcome_card(self):
+        """Show welcome card when no file is open"""
+        if self.has_open_file:
+            return
+            
+        # Create welcome card overlay
+        self.welcome_widget = QWidget(self.graphics_view)
+        self.welcome_widget.setObjectName("welcomeCard")
+        self.welcome_widget.setStyleSheet("""
+            QWidget#welcomeCard {
+                background: rgba(15,55,70,0.95);
+                border: 2px solid #19a7d8;
+                border-radius: 12px;
+            }
+            QPushButton {
+                background: rgba(255,255,255,0.1);
+                border: 1px solid rgba(255,255,255,0.2);
+                padding: 12px 24px;
+                color: #e8f2f6;
+                border-radius: 8px;
+                font-weight: 500;
+                font-size: 14px;
+                min-height: 20px;
+            }
+            QPushButton:hover {
+                background: rgba(255,255,255,0.2);
+            }
+            QLabel {
+                color: #e4ecf0;
+                font-size: 16px;
+            }
+        """)
+        
+        layout = QVBoxLayout(self.welcome_widget)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(20)
+        
+        # Title
+        title = QLabel("Bienvenido a ComCAD V1")
+        title.setFont(QFont("Arial", 18, QFont.Bold))
+        layout.addWidget(title)
+        
+        # Buttons container
+        buttons_layout = QVBoxLayout()
+        buttons_layout.setSpacing(12)
+        
+        # Three main buttons
+        btn_abrir = QPushButton("Abrir plano")
+        btn_abrir.clicked.connect(self._on_abrir)
+        
+        btn_unidades = QPushButton("Configurar unidades")
+        btn_unidades.clicked.connect(self._show_units_dialog)
+        
+        btn_recientes = QPushButton("Recientes…")
+        btn_recientes.clicked.connect(self._show_recent_files)
+        
+        for btn in [btn_abrir, btn_unidades, btn_recientes]:
+            buttons_layout.addWidget(btn)
+            
+        layout.addLayout(buttons_layout)
+        
+        # Recent files placeholder text
+        recent_label = QLabel("No hay archivos recientes")
+        recent_label.setStyleSheet("color: #a0b5c0; font-size: 12px; font-style: italic;")
+        layout.addWidget(recent_label)
+        
+        # Position the welcome card
+        self.welcome_widget.resize(350, 280)
+        self._position_welcome_card()
+        self.welcome_widget.show()
+
+    def _position_welcome_card(self):
+        """Position the welcome card in the center of the graphics view"""
+        if hasattr(self, 'welcome_widget'):
+            view_rect = self.graphics_view.viewport().rect()
+            card_rect = self.welcome_widget.rect()
+            x = (view_rect.width() - card_rect.width()) // 2
+            y = (view_rect.height() - card_rect.height()) // 2
+            self.welcome_widget.move(x, y)
+
+    def _hide_welcome_card(self):
+        """Hide the welcome card when a file is opened"""
+        if hasattr(self, 'welcome_widget'):
+            self.welcome_widget.hide()
+            self.has_open_file = True
+
     # -------- Toolbar -------- #
     def _crear_toolbar(self):
         tb = QToolBar("Principal")
@@ -375,34 +501,56 @@ class VentanaPrincipal(QMainWindow):
         tb.setMovable(False)
         self.addToolBar(Qt.TopToolBarArea, tb)
 
-        act_abrir = QAction(self.style().standardIcon(QStyle.SP_DialogOpenButton), "Abrir", self)
-        act_nuevo = QAction(self.style().standardIcon(QStyle.SP_FileIcon), "Nuevo", self)
-        act_guardar = QAction(self.style().standardIcon(QStyle.SP_DialogSaveButton), "Guardar", self)
+        # File actions with shortcuts in tooltips
+        act_nuevo = QAction(self._safe_load_icon(QStyle.SP_FileIcon), "Nuevo", self)
+        act_nuevo.setToolTip("Nuevo archivo (Ctrl+N)")
+        act_nuevo.setShortcut(QKeySequence("Ctrl+N"))
+        
+        act_abrir = QAction(self._safe_load_icon(QStyle.SP_DialogOpenButton), "Abrir", self)
+        act_abrir.setToolTip("Abrir plano (Ctrl+O)")
+        act_abrir.setShortcut(QKeySequence("Ctrl+O"))
+        
+        act_guardar = QAction(self._safe_load_icon(QStyle.SP_DialogSaveButton), "Guardar", self)
+        act_guardar.setToolTip("Guardar (Ctrl+S)")
+        act_guardar.setShortcut(QKeySequence("Ctrl+S"))
 
+        # View actions with shortcuts in tooltips
         act_zoom_in = QAction("Zoom +", self)
+        act_zoom_in.setToolTip("Zoom + (Ctrl++)")
+        
         act_zoom_out = QAction("Zoom -", self)
+        act_zoom_out.setToolTip("Zoom - (Ctrl+-)")
+        
         act_fit = QAction("Ajustar", self)
+        act_fit.setToolTip("Ajustar vista (Ctrl+0)")
 
         act_crosshair = QAction("Crosshair", self)
         act_crosshair.setCheckable(True)
         act_crosshair.setChecked(True)
+        act_crosshair.setToolTip("Mostrar/Ocultar cursor cruzado")
 
         act_snap_enable = QAction("Snap", self)
         act_snap_enable.setCheckable(True)
         act_snap_enable.setChecked(True)
+        act_snap_enable.setToolTip("Activar/Desactivar magnetismo")
 
         act_snap_grid = QAction("Grid Snap", self)
         act_snap_grid.setCheckable(True)
         act_snap_grid.setChecked(True)
+        act_snap_grid.setToolTip("Magnetismo a rejilla")
 
         act_toggle_left = QAction("Panel Izq", self)
         act_toggle_left.setCheckable(True)
         act_toggle_left.setChecked(True)
+        act_toggle_left.setToolTip("Mostrar/Ocultar panel izquierdo")
+        
         act_toggle_right = QAction("Panel Der", self)
         act_toggle_right.setCheckable(True)
         act_toggle_right.setChecked(True)
+        act_toggle_right.setToolTip("Mostrar/Ocultar panel derecho")
 
-        for a in (act_abrir, act_nuevo, act_guardar):
+        # Add actions to toolbar
+        for a in (act_nuevo, act_abrir, act_guardar):
             tb.addAction(a)
         tb.addSeparator()
         for a in (act_zoom_in, act_zoom_out, act_fit):
@@ -416,7 +564,10 @@ class VentanaPrincipal(QMainWindow):
         tb.addAction(act_toggle_left)
         tb.addAction(act_toggle_right)
 
-        # Referencias
+        # Store references
+        self.act_nuevo = act_nuevo
+        self.act_abrir = act_abrir
+        self.act_guardar = act_guardar
         self.act_zoom_in = act_zoom_in
         self.act_zoom_out = act_zoom_out
         self.act_fit = act_fit
@@ -426,33 +577,83 @@ class VentanaPrincipal(QMainWindow):
         self.act_toggle_left = act_toggle_left
         self.act_toggle_right = act_toggle_right
 
-        # Placeholders
-        act_abrir.triggered.connect(lambda: self.statusBar().showMessage("Abrir plano (pendiente)", 3000))
-        act_nuevo.triggered.connect(lambda: self.statusBar().showMessage("Nuevo (pendiente)", 3000))
-        act_guardar.triggered.connect(lambda: self.statusBar().showMessage("Guardar (pendiente)", 3000))
+        # Connect actions
+        act_nuevo.triggered.connect(self._on_nuevo)
+        act_abrir.triggered.connect(self._on_abrir)
+        act_guardar.triggered.connect(self._on_guardar)
 
     # -------- Status Bar -------- #
     def _crear_statusbar(self):
         status = QStatusBar(self)
         self.setStatusBar(status)
+        
+        # Coordinate labels
         self.coords_label = QLabel("X: 0.000  Y: 0.000 (snap)")
         self.raw_label = QLabel("Raw: 0.000, 0.000")
+        
+        # Separators
+        sep1 = QLabel("|")
+        sep1.setObjectName("status-separator")
+        sep2 = QLabel("|")
+        sep2.setObjectName("status-separator")
+        sep3 = QLabel("|")
+        sep3.setObjectName("status-separator")
+        
+        # Mode and file info
+        self.mode_label = QLabel("Modo: Normal")
         self.items_label = QLabel("Elementos: 0")
         self.file_label = QLabel("Archivo: ninguno")
+        
+        # Add widgets to status bar
         status.addWidget(self.coords_label)
+        status.addWidget(sep1)
         status.addWidget(self.raw_label)
+        status.addWidget(sep2)
+        status.addWidget(self.mode_label)
+        status.addPermanentWidget(sep3)
         status.addPermanentWidget(self.items_label)
         status.addPermanentWidget(self.file_label)
+
+    # -------- Keyboard Shortcuts -------- #
+    def _crear_shortcuts(self):
+        """Create all global keyboard shortcuts"""
+        # File shortcuts (already handled by actions, but add additional ones)
+        self._add_shortcut("Ctrl+E", self._on_exportar_pdf)  # Export PDF
+        self._add_shortcut("Ctrl+Q", self.close)  # Exit
+        
+        # Edit shortcuts
+        self._add_shortcut("Ctrl+Z", self._on_deshacer)  # Undo
+        self._add_shortcut("Ctrl+Y", self._on_rehacer)  # Redo
+        self._add_shortcut("Del", self._on_eliminar)  # Delete element
+        
+        # View shortcuts
+        self._add_shortcut("Ctrl++", lambda: self._zoom(1.15))  # Zoom in
+        self._add_shortcut("Ctrl+=", lambda: self._zoom(1.15))  # Zoom in (alternative)
+        self._add_shortcut("Ctrl+-", lambda: self._zoom(1/1.15))  # Zoom out
+        self._add_shortcut("Ctrl+0", self._fit_to_content)  # Fit view
+        self._add_shortcut("G", self._toggle_grid)  # Toggle grid
+        self._add_shortcut("P", self._toggle_all_panels)  # Toggle panels
+        
+        # Tools/Mode shortcuts
+        self._add_shortcut("I", self._on_insertar_simbolo)  # Insert symbol
+        self._add_shortcut("D", self._on_dibujar_canalizacion)  # Draw piping
+        self._add_shortcut("R", self._on_generar_reporte)  # Generate report
+        
+        # Utilities shortcuts
+        self._add_shortcut("Ctrl+U", self._show_units_dialog)  # Configure units
+        self._add_shortcut("F1", self._show_about)  # About
 
     # -------- Conexiones -------- #
     def _conectar_signals(self):
         self.graphics_view.mouseMoved.connect(self._on_mouse_moved)
 
-        self.btn_open.clicked.connect(self._on_open)
-        self.btn_insert.clicked.connect(self._on_insert)
-        self.btn_draw.clicked.connect(self._on_draw)
-        self.btn_report.clicked.connect(self._on_report)
+        # Left dock buttons (updated to use new handlers)
+        self.btn_open.clicked.connect(self._on_abrir)
+        self.btn_insert.clicked.connect(self._on_insertar_simbolo)
+        self.btn_draw.clicked.connect(self._on_dibujar_canalizacion)
+        self.btn_report.clicked.connect(self._on_generar_reporte)
 
+        # Toolbar actions
         self.act_zoom_in.triggered.connect(lambda: self._zoom(1.15))
         self.act_zoom_out.triggered.connect(lambda: self._zoom(1 / 1.15))
         self.act_fit.triggered.connect(self._fit_to_content)
@@ -472,6 +673,11 @@ class VentanaPrincipal(QMainWindow):
         painter.fillRect(self.rect(), grad)
         super().paintEvent(event)
 
+    def resizeEvent(self, event):
+        """Handle window resize to reposition welcome card"""
+        super().resizeEvent(event)
+        self._position_welcome_card()
+
     # -------- Funciones utilitarias -------- #
     def _zoom(self, factor: float):
         self.graphics_view.scale(factor, factor)
@@ -487,18 +693,139 @@ class VentanaPrincipal(QMainWindow):
     def _on_snap_grid_toggled(self, checked: bool):
         self.graphics_view.set_snap_mode(SnapMode.GRID if checked else SnapMode.NONE)
 
-    # -------- Placeholders acciones -------- #
-    def _on_open(self):
+    def _update_mode(self, new_mode: str):
+        """Update current mode and status bar"""
+        self.current_mode = new_mode
+        self.mode_label.setText(f"Modo: {new_mode}")
+
+    def _toggle_grid(self):
+        """Toggle grid visibility (G shortcut)"""
+        # This is a placeholder - in a real implementation this would toggle grid rendering
+        self.statusBar().showMessage("Toggle grid (pendiente)", 2000)
+
+    def _toggle_all_panels(self):
+        """Toggle all panels visibility (P shortcut)"""
+        left_visible = self.dock_left.isVisible()
+        right_visible = self.dock_right.isVisible()
+        
+        # If any panel is visible, hide all; otherwise show all
+        if left_visible or right_visible:
+            self.dock_left.setVisible(False)
+            self.dock_right.setVisible(False)
+            self.act_toggle_left.setChecked(False)
+            self.act_toggle_right.setChecked(False)
+        else:
+            self.dock_left.setVisible(True)
+            self.dock_right.setVisible(True)
+            self.act_toggle_left.setChecked(True)
+            self.act_toggle_right.setChecked(True)
+
+    # -------- Dialog Methods -------- #
+    def _show_units_dialog(self):
+        """Show units configuration dialog (Ctrl+U)"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Configuración de unidades")
+        dialog.setModal(True)
+        dialog.resize(300, 150)
+        
+        layout = QFormLayout(dialog)
+        
+        # Sample unit options
+        length_combo = QComboBox()
+        length_combo.addItems(["Milímetros", "Centímetros", "Metros", "Pulgadas", "Pies"])
+        
+        angle_combo = QComboBox()
+        angle_combo.addItems(["Grados", "Radianes"])
+        
+        layout.addRow("Unidad de longitud:", length_combo)
+        layout.addRow("Unidad de ángulo:", angle_combo)
+        
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        
+        if dialog.exec_() == QDialog.Accepted:
+            self.statusBar().showMessage("Unidades configuradas", 2000)
+
+    def _show_recent_files(self):
+        """Show recent files placeholder dialog"""
+        QMessageBox.information(
+            self, 
+            "Recientes", 
+            "(Funcionalidad pendiente)\n\nAquí se mostrará la lista de archivos recientes."
+        )
+
+    def _show_about(self):
+        """Show about dialog (F1)"""
+        QMessageBox.about(
+            self,
+            "Acerca de ComCAD V1",
+            "ComCAD V1 - Equitelcom\n\n"
+            "Sistema de diseño asistido por computadora\n"
+            "para instalaciones de telecomunicaciones.\n\n"
+            "Versión: 1.0.0"
+        )
+
+    # -------- Action Handlers -------- #
+    def _on_nuevo(self):
+        """New file (Ctrl+N)"""
+        self.statusBar().showMessage("Nuevo archivo (pendiente)", 3000)
+        # In real implementation, this would create a new file
+        
+    def _on_abrir(self):
+        """Open file (Ctrl+O)"""
         self.statusBar().showMessage("Abrir plano (pendiente)", 3000)
+        # Hide welcome card when opening a file
+        self._hide_welcome_card()
+        
+    def _on_guardar(self):
+        """Save file (Ctrl+S)"""
+        self.statusBar().showMessage("Guardar archivo (pendiente)", 3000)
+        
+    def _on_exportar_pdf(self):
+        """Export to PDF (Ctrl+E)"""
+        self.statusBar().showMessage("Exportar PDF (pendiente)", 3000)
+        
+    def _on_deshacer(self):
+        """Undo (Ctrl+Z)"""
+        self.statusBar().showMessage("Deshacer (pendiente)", 2000)
+        
+    def _on_rehacer(self):
+        """Redo (Ctrl+Y)"""
+        self.statusBar().showMessage("Rehacer (pendiente)", 2000)
+        
+    def _on_eliminar(self):
+        """Delete element (Del)"""
+        self.statusBar().showMessage("Eliminar elemento (pendiente)", 2000)
+
+    def _on_insertar_simbolo(self):
+        """Insert symbol mode (I)"""
+        self._update_mode("Insertar símbolo")
+        self.statusBar().showMessage("Modo: Insertar símbolo", 2000)
+
+    def _on_dibujar_canalizacion(self):
+        """Draw piping mode (D)"""
+        self._update_mode("Dibujar canalización")
+        self.statusBar().showMessage("Modo: Dibujar canalización", 2000)
+
+    def _on_generar_reporte(self):
+        """Generate report (R)"""
+        self._update_mode("Generar reporte")
+        self.statusBar().showMessage("Generando reporte (pendiente)", 3000)
+
+    # -------- Placeholders acciones (legacy, replaced by new handlers) -------- #
+    def _on_open(self):
+        self._on_abrir()
 
     def _on_insert(self):
-        self.statusBar().showMessage("Insertar símbolo (pendiente)", 3000)
+        self._on_insertar_simbolo()
 
     def _on_draw(self):
-        self.statusBar().showMessage("Dibujar canalización (pendiente)", 3000)
+        self._on_dibujar_canalizacion()
 
     def _on_report(self):
-        self.statusBar().showMessage("Generar reporte (pendiente)", 3000)
+        self._on_generar_reporte()
 
     def _on_mouse_moved(self, x, y, snapped, raw_x, raw_y):
         if snapped:
