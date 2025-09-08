@@ -481,18 +481,18 @@ class VentanaPrincipal(QMainWindow):
 
     def _position_welcome_card(self):
         """Position the welcome card in the center of the graphics view"""
-        if hasattr(self, 'welcome_widget'):
+        if hasattr(self, 'welcome_widget') and self.welcome_widget is not None:
             view_rect = self.graphics_view.viewport().rect()
             card_rect = self.welcome_widget.rect()
-            x = (view_rect.width() - card_rect.width()) // 2
-            y = (view_rect.height() - card_rect.height()) // 2
+            x = max(0, (view_rect.width() - card_rect.width()) // 2)
+            y = max(0, (view_rect.height() - card_rect.height()) // 2)
             self.welcome_widget.move(x, y)
 
     def _hide_welcome_card(self):
         """Hide the welcome card when a file is opened"""
-        if hasattr(self, 'welcome_widget'):
+        if hasattr(self, 'welcome_widget') and self.welcome_widget is not None:
             self.welcome_widget.hide()
-            self.has_open_file = True
+        self.has_open_file = True
 
     # -------- Toolbar -------- #
     def _crear_toolbar(self):

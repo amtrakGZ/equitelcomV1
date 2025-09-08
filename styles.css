@@ -121,5 +121,4 @@ QLabel#status-separator {
 QPushButton:focus, QToolButton:focus, QLineEdit:focus {
     outline: none;
     border: 1px solid #19a7d8;
-    box-shadow: 0 0 4px rgba(25, 167, 216, 0.55);
 }
